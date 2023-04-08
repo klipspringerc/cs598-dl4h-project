@@ -1,4 +1,8 @@
 import numpy as np
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
+
+
 import pandas as pd
 from util import *
 
@@ -7,8 +11,8 @@ vocab_file = '../resource/vocab.txt'
 stop_file = '../resource/stop.txt'
 vocab_pkl = '../resource/vocab.pkl'
 
-rare_word = 100
-stop_word = 1e4
+rare_word = 100  # descriptions that appeared less than 100 times are considered rare, they are filtered out in paper
+stop_word = 1e4  # description that appeared for more than 10000 times
 unknown = 1
 
 
@@ -20,6 +24,7 @@ def dump_vocab():
 
     # .to_frame(): indexed by the groups, with a custom name
     # .reset_index(): set the groups to be columns again
+    # after groupby, there are 1412 unique descriptions
     hist = df.groupby('DX_GROUP_DESCRIPTION').size().to_frame('SIZE').reset_index()
     print(hist[0:3])
 
@@ -29,7 +34,7 @@ def dump_vocab():
     count = hist.groupby('SIZE').size().to_frame('COUNT').reset_index()
     print(count)
 
-    # filter
+    # filter low occurrence descriptions, this leaves 490 unique descriptions with more than 100 occurrences
     hist = hist[hist['SIZE'] > rare_word]
     print(hist)
 
@@ -38,7 +43,7 @@ def dump_vocab():
     vocab.index += 2  # reserve 1 to unk
     vocab.to_csv(vocab_file, sep='\t', header=False, index=True)
 
-    # stop word
+    # there are 12 descriptions with more than 10000 occurrences.
     hist[hist['SIZE'] > stop_word].reset_index()['DX_GROUP_DESCRIPTION'] \
         .to_csv(stop_file, sep='\t', header=False, index=False)
 
@@ -56,6 +61,7 @@ def load_vocab():
     return word_to_index
 
 
+# group records in to patient-date 2d array, while converting description text to its index. unknown description represented by 1
 def convert_format(word_to_index, events):
     # order by PID, DAY_ID
     with open(input_file, mode='r') as f:
@@ -67,9 +73,9 @@ def convert_format(word_to_index, events):
             pos[value] = key
         print(pos)
 
-        docs = []
-        doc = []
-        sent = []
+        docs = []  #
+        doc = []  # packs all events of the same patient
+        sent = []  # pack events in the same day
         labels = []
         label = []
 
@@ -85,7 +91,7 @@ def convert_format(word_to_index, events):
             c_pid = tokens[pos['PID']]
             c_day_id = tokens[pos['DAY_ID']]
 
-            # closure
+            # move to next patient
             if c_pid != pid:
                 doc.append(sent)
                 docs.append(doc)
