@@ -3,7 +3,7 @@ import numpy as np
 
 
 def save_pkl(path, obj):
-    with open(path, 'w') as f:
+    with open(path, 'wb') as f:
         pickle.dump(obj, f)
         print(" [*] save %s" % path)
 

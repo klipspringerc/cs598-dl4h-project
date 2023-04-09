@@ -16,6 +16,13 @@ stop_word = 1e4  # description that appeared for more than 10000 times
 unknown = 1
 
 
+# Note on processed data:
+# max patient sequence length is 327
+# average patient sequence length is 79.98
+# 184 patient has short visit sequence < 30, 6 patient < 6
+
+
+
 # dump_vocab parse S1 data, collect DX_GROUP_DESCRIPTION vocabulary.
 # filter words with low occurrence (rare word), store high occurrence word in stop.txt.
 def dump_vocab():
@@ -61,7 +68,8 @@ def load_vocab():
     return word_to_index
 
 
-# group records in to patient-date 2d array, while converting description text to its index. unknown description represented by 1
+# group records in to patient-date 2d array, while converting description text to its index.
+# unknown description represented by 1.
 def convert_format(word_to_index, events):
     # order by PID, DAY_ID
     with open(input_file, mode='r') as f:
@@ -127,18 +135,21 @@ def convert_format(word_to_index, events):
 def split_data(docs, labels):
     # train, validate, test
     # X, Y,
-    # TODO: YY
+    # 3000 document and labels
     print(len(docs))
     # print(docs)
     print(len(labels))
     # print(labels)
 
-    save_pkl('../resource/X_train.pkl', docs[:4000])
-    save_pkl('../resource/Y_train.pkl', labels[:4000])
-    save_pkl('../resource/X_valid.pkl', docs[4000:4700])
-    save_pkl('../resource/Y_valid.pkl', labels[4000:4700])
-    save_pkl('../resource/X_test.pkl', docs[4700:])
-    save_pkl('../resource/Y_test.pkl', labels[4700:])
+    save_pkl('./resource/X_train.pkl', docs[:2000])
+    save_pkl('./resource/Y_train.pkl', labels[:2000])
+    save_pkl('./resource/X_valid.pkl', docs[2000:2350])
+    save_pkl('./resource/Y_valid.pkl', labels[2000:2350])
+    save_pkl('./resource/X_test.pkl', docs[2350:])
+    save_pkl('./resource/Y_test.pkl', labels[2350:])
+    save_pkl('./resource/X_complete.pkl', docs)
+    save_pkl('./resource/Y_complete.pkl', labels)
+
 
 
 def extract_events():
@@ -148,6 +159,7 @@ def extract_events():
     df = pd.read_csv(input_file, sep='\t', header=0)
     events = df[df['SERVICE_LOCATION'] == target_event]
 
+    # 30742 pid-day_id pairs with inpatient hospital event
     events = events.groupby(['PID', 'DAY_ID', 'SERVICE_LOCATION']).size().to_frame('COUNT').reset_index() \
         .sort_values(by=['PID', 'DAY_ID'], ascending=True) \
         .set_index('PID')
@@ -171,6 +183,20 @@ def tag_logic(events, pid, day_id):
     except KeyError:
         # the label is not in the [index]
         return False
+
+
+# Split complete sequence into sub-seq each associated with one clear label.
+# TODO: issue: sequence length, step size?
+# TODO: need to handle cases with consecutive `1`s
+def split_sequence(docs, labels):
+    split_sequences = []
+    split_label = []
+    idx_to_patient = {}
+    for i in range(len(docs)):
+        sub_seq = []
+        patient_seq = docs[i]
+        # no sliding window for short sequences? - unfair for model predictions
+        if len(patient_seq < 30):
 
 
 def main():
