@@ -9,7 +9,7 @@ def save_pkl(path, obj):
 
 
 def load_pkl(path):
-    with open(path) as f:
+    with open(path, 'rb') as f:
         obj = pickle.load(f)
         print(" [*] load %s" % path)
         return obj

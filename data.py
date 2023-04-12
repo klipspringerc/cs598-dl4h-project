@@ -6,10 +6,12 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 import pandas as pd
 from util import *
 
-input_file = '../resource/snow_case_with_facilities.txt'
-vocab_file = '../resource/vocab.txt'
-stop_file = '../resource/stop.txt'
-vocab_pkl = '../resource/vocab.pkl'
+
+raw_file = './data/S1_File.txt'
+input_file = './resource/s1_sorted.csv'
+vocab_file = './resource/vocab.txt'
+stop_file = './resource/stop.txt'
+vocab_pkl = './resource/vocab.pkl'
 
 rare_word = 100  # descriptions that appeared less than 100 times are considered rare, they are filtered out in paper
 stop_word = 1e4  # description that appeared for more than 10000 times
@@ -22,6 +24,10 @@ unknown = 1
 # 184 patient has short visit sequence < 30, 6 patient < 6
 
 
+def sort_data():
+    df = pd.read_csv(raw_file, sep='\t', header=0)
+    sorted_df = df.sort_values(by=['PID', 'DAY_ID'], ascending=True).reset_index().drop(columns=["index"])
+    sorted_df.to_csv(input_file, sep='\t', index=False)
 
 # dump_vocab parse S1 data, collect DX_GROUP_DESCRIPTION vocabulary.
 # filter words with low occurrence (rare word), store high occurrence word in stop.txt.
@@ -187,16 +193,19 @@ def tag_logic(events, pid, day_id):
 
 # Split complete sequence into sub-seq each associated with one clear label.
 # TODO: issue: sequence length, step size?
-# TODO: need to handle cases with consecutive `1`s
+# TODO: do we need to handle cases with consecutive `1`s?
 def split_sequence(docs, labels):
     split_sequences = []
-    split_label = []
-    idx_to_patient = {}
+    split_labels = []
+    idx_to_patient = []
     for i in range(len(docs)):
-        sub_seq = []
         patient_seq = docs[i]
-        # no sliding window for short sequences? - unfair for model predictions
-        if len(patient_seq < 30):
+        patient_labels = labels[i]
+        for j in range(len(patient_seq)):
+            split_sequences.append(patient_seq[0:j+1])
+            split_labels.append(patient_labels[j])
+            idx_to_patient.append(i)
+    return split_sequences, split_labels
 
 
 def main():
