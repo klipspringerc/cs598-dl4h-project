@@ -191,23 +191,6 @@ def tag_logic(events, pid, day_id):
         return False
 
 
-# Split complete sequence into sub-seq each associated with one clear label.
-# TODO: issue: sequence length, step size?
-# TODO: do we need to handle cases with consecutive `1`s?
-def split_sequence(docs, labels):
-    split_sequences = []
-    split_labels = []
-    idx_to_patient = []
-    for i in range(len(docs)):
-        patient_seq = docs[i]
-        patient_labels = labels[i]
-        for j in range(len(patient_seq)):
-            split_sequences.append(patient_seq[0:j+1])
-            split_labels.append(patient_labels[j])
-            idx_to_patient.append(i)
-    return split_sequences, split_labels
-
-
 def main():
     # dump_vocab()
     word_to_index = load_vocab()

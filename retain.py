@@ -10,8 +10,33 @@ from util import *
 from torch.utils.data import Dataset
 
 
-docs = load_pkl("resource/X_complete.pkl")
-labels = load_pkl("resource/Y_complete.pkl")
+doc_train = load_pkl("resource/X_train.pkl")
+label_train = load_pkl("resource/Y_train.pkl")
+doc_val = load_pkl("resource/X_valid.pkl")
+label_val = load_pkl("resource/Y_valid.pkl")
+doc_test = load_pkl("resource/X_test.pkl")
+label_test = load_pkl("resource/Y_test.pkl")
+
+# Split complete sequence into sub-seq each associated with one clear label.
+# TODO: issue: sequence length, step size?
+# TODO: do we need to handle cases with consecutive `1`s?
+def split_sequence(docs, labels):
+    split_sequences = []
+    split_labels = []
+    idx_to_patient = []
+    for i in range(len(docs)):
+        patient_seq = docs[i]
+        patient_labels = labels[i]
+        for j in range(len(patient_seq)):
+            split_sequences.append(patient_seq[0:j+1])
+            split_labels.append(patient_labels[j])
+            idx_to_patient.append(i)
+    return split_sequences, split_labels
+
+
+seqs, labels = split_sequence(doc_train, label_train)
+seq_val, label_val = split_sequence(doc_val, label_val)
+seq_test, label_test = split_sequence(doc_test, label_test)
 
 
 class CustomDataset(Dataset):
@@ -39,11 +64,15 @@ class CustomDataset(Dataset):
         return self.x[index], self.y[index]
 
 
-dataset = CustomDataset(docs, labels)
+dataset = CustomDataset(seqs, labels)
 
 
 def collate_fn(data):
     """
+    TODO: Collate the the list of samples into batches. For each patient, you need to pad the diagnosis
+        sequences to the sample shape (max # visits, max # diagnosis codes). The padding infomation
+        is stored in `mask`.
+
     Arguments:
         data: a list of samples fetched from `CustomDataset`
 
@@ -59,8 +88,6 @@ def collate_fn(data):
     """
 
     sequences, labels = zip(*data)
-    print("seq 1: ", len(sequences), len(sequences[0]))
-    print("label 1:", len(labels), labels)
 
     y = torch.tensor(labels, dtype=torch.float)
 
@@ -70,7 +97,6 @@ def collate_fn(data):
 
     max_num_visits = max(num_visits)
     max_num_codes = max(num_codes)
-    print("max visits and codes: ", max_num_visits, max_num_codes)
 
     x = torch.zeros((num_patients, max_num_visits, max_num_codes), dtype=torch.long)
     rev_x = torch.zeros((num_patients, max_num_visits, max_num_codes), dtype=torch.long)
@@ -78,6 +104,10 @@ def collate_fn(data):
     rev_masks = torch.zeros((num_patients, max_num_visits, max_num_codes), dtype=torch.bool)
     for i_patient, patient in enumerate(sequences):
         for j_visit, visit in enumerate(patient):
+            """
+            TODO: update `x`, `rev_x`, `masks`, and `rev_masks`
+            """
+            # your code here
             masks[i_patient][j_visit][:len(visit)] = True
             x[i_patient][j_visit][:len(visit)] = torch.Tensor(visit).type(torch.long)
             rev_masks[i_patient][len(patient) - 1 - j_visit][:len(visit)] = True
@@ -88,9 +118,17 @@ def collate_fn(data):
 
 from torch.utils.data import DataLoader
 
-loader = DataLoader(dataset, batch_size=10, collate_fn=collate_fn)
+loader = DataLoader(dataset, batch_size=32, collate_fn=collate_fn, shuffle=True)
+train_loader = loader
 loader_iter = iter(loader)
 x, masks, rev_x, rev_masks, y = next(loader_iter)
+
+
+dataset_val = CustomDataset(seq_val, label_val)
+val_loader = DataLoader(dataset_val, batch_size=32, collate_fn=collate_fn, shuffle=False)
+
+dataset_test = CustomDataset(seq_test, label_test)
+test_loader = DataLoader(dataset_test, batch_size=32, collate_fn=collate_fn, shuffle=False)
 
 
 # AlphaAttention generates one attention value for each visit.
@@ -291,7 +329,7 @@ def eval(model, val_loader):
     return p, r, f, roc_auc
 
 
-retain = RETAIN(num_codes = len(types))
+retain = RETAIN(num_codes = 492)  # total vocab 491
 
 # load the loss function
 criterion = nn.BCELoss()
@@ -328,6 +366,13 @@ def train(model, train_loader, val_loader, n_epochs):
         train_loss = train_loss / len(train_loader)
         print('Epoch: {} \t Training Loss: {:.6f}'.format(epoch + 1, train_loss))
         p, r, f, roc_auc = eval(model, val_loader)
-        print('Epoch: {} \t Validation p: {:.2f}, r:{:.2f}, f: {:.2f}, roc_auc: {:.2f}'.format(epoch + 1, p, r, f,
+        print('Epoch: {} \t Validation p: {:.4f}, r:{:.4f}, f: {:.4f}, roc_auc: {:.4f}'.format(epoch + 1, p, r, f,
                                                                                                roc_auc))
     return round(roc_auc, 2)
+
+
+n_epochs = 5
+train(retain, train_loader, val_loader, n_epochs)
+
+p, r, f, roc_auc = eval(retain, test_loader)
+print('Test p: {:.4f}, r:{:.4f}, f: {:.4f}, roc_auc: {:.4f}'.format(p, r, f, roc_auc))
