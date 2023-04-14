@@ -118,9 +118,8 @@ def collate_fn(data):
 
 from torch.utils.data import DataLoader
 
-loader = DataLoader(dataset, batch_size=32, collate_fn=collate_fn, shuffle=True)
-train_loader = loader
-loader_iter = iter(loader)
+train_loader = DataLoader(dataset, batch_size=32, collate_fn=collate_fn, shuffle=True)
+loader_iter = iter(train_loader)
 x, masks, rev_x, rev_masks, y = next(loader_iter)
 
 
@@ -334,7 +333,7 @@ retain = RETAIN(num_codes = 492)  # total vocab 491
 # load the loss function
 criterion = nn.BCELoss()
 # load the optimizer
-optimizer = torch.optim.Adam(retain.parameters(), lr=1e-3)
+optimizer = torch.optim.Adam(retain.parameters(), lr=1e-4)
 
 
 def train(model, train_loader, val_loader, n_epochs):
