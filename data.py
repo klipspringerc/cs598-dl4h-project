@@ -19,8 +19,10 @@ unknown = 1
 
 
 # Note on processed data:
+# 3000 patients
 # max patient sequence length is 327
 # average patient sequence length is 79.98
+# max codes per visit is 75
 # 184 patient has short visit sequence < 30, 6 patient < 6
 
 

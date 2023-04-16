@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from util import *
 
 from torch.utils.data import Dataset
+from torch.utils.data import DataLoader
 
 
 doc_train = load_pkl("resource/X_train.pkl")
@@ -16,6 +17,8 @@ doc_val = load_pkl("resource/X_valid.pkl")
 label_val = load_pkl("resource/Y_valid.pkl")
 doc_test = load_pkl("resource/X_test.pkl")
 label_test = load_pkl("resource/Y_test.pkl")
+
+device = torch.device("mps")
 
 # Split complete sequence into sub-seq each associated with one clear label.
 # TODO: issue: sequence length, step size?
@@ -65,7 +68,7 @@ class CustomDataset(Dataset):
 
 
 dataset = CustomDataset(seqs, labels)
-
+torch.set_default_device('cpu')
 
 def collate_fn(data):
     """
@@ -109,14 +112,14 @@ def collate_fn(data):
             """
             # your code here
             masks[i_patient][j_visit][:len(visit)] = True
-            x[i_patient][j_visit][:len(visit)] = torch.Tensor(visit).type(torch.long)
+            x[i_patient][j_visit][:len(visit)] = torch.tensor(visit).type(torch.long)
             rev_masks[i_patient][len(patient) - 1 - j_visit][:len(visit)] = True
-            rev_x[i_patient][len(patient) - 1 - j_visit][:len(visit)] = torch.Tensor(visit).type(torch.long)
+            rev_x[i_patient][len(patient) - 1 - j_visit][:len(visit)] = torch.tensor(visit).type(torch.long)
 
     return x, masks, rev_x, rev_masks, y
 
 
-from torch.utils.data import DataLoader
+
 
 train_loader = DataLoader(dataset, batch_size=32, collate_fn=collate_fn, shuffle=True)
 loader_iter = iter(train_loader)
@@ -370,7 +373,7 @@ def train(model, train_loader, val_loader, n_epochs):
     return round(roc_auc, 2)
 
 
-n_epochs = 5
+n_epochs = 3
 train(retain, train_loader, val_loader, n_epochs)
 
 p, r, f, roc_auc = eval(retain, test_loader)
