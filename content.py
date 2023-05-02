@@ -73,29 +73,14 @@ class CustomDataset(Dataset):
         self.y = labels
 
     def __len__(self):
-        """
-        TODO: Return the number of samples (i.e. patients).
-        """
-
-        # your code here
         return len(self.x)
 
     def __getitem__(self, index):
-        """
-        TODO: Generates one sample of data.
-
-        Note that you DO NOT need to covert them to tensor as we will do this later.
-        """
-
-        # your code here
         return self.x[index], self.y[index]
 
 
 def collate_fn(data):
     """
-    TODO: Collate the the list of samples into batches. For each patient, you need to pad the diagnosis
-        sequences to the sample shape (max # visits, max # diagnosis codes). The padding infomation
-        is stored in `mask`.
 
     Arguments:
         data: a list of samples fetched from `CustomDataset`
@@ -106,9 +91,6 @@ def collate_fn(data):
         rev_x: same as x but in reversed time. This will be used in our RNN model for masking
         rev_masks: same as mask but in reversed time. This will be used in our RNN model for masking
         y: a tensor of shape (# patiens) of type torch.float
-
-    Note that you can obtains the list of diagnosis codes and the list of hf labels
-        using: `sequences, labels = zip(*data)`
     """
 
     sequences, labels = zip(*data)
@@ -128,10 +110,6 @@ def collate_fn(data):
     rev_masks = torch.zeros((num_patients, max_num_visits, max_num_codes), dtype=torch.bool)
     for i_patient, patient in enumerate(sequences):
         for j_visit, visit in enumerate(patient):
-            """
-            TODO: update `x`, `rev_x`, `masks`, and `rev_masks`
-            """
-            # your code here
             masks[i_patient][j_visit][:len(visit)] = True
             x[i_patient][j_visit][:len(visit)] = torch.tensor(visit).type(torch.float)
             rev_masks[i_patient][len(patient) - 1 - j_visit][:len(visit)] = True
@@ -177,12 +155,7 @@ class Recognition(torch.nn.Module):
             rev_masks: the padding masks in reversed time of shape (batch_size, # visits, # diagnosis codes)
 
         Outputs:
-            alpha: the corresponding attention weights of shape (batch_size, # visits, 1)
-
-        HINT:
-            1. Calculate the attention score using `self.a_att`
-            2. Mask out the padded visits in the attention score with -1e9.
-            3. Perform softmax on the attention score to get the attention value.
+            gen: generated value from learned distribution
         """
         # MLP to obtain mean and log_sigma values
         x = torch.relu(self.a_att(x))  # (batch, visit, input) -> (batch, visit, hidden)
@@ -246,7 +219,7 @@ def eval(model, val_loader):
     Evaluate the model.
 
     Arguments:
-        model: the RNN model
+        model: the model
         val_loader: validation dataloader
 
     Outputs:
@@ -254,8 +227,6 @@ def eval(model, val_loader):
         recall: overall recall score
         f1: overall f1 score
         roc_auc: overall roc_auc score
-
-    REFERENCE: checkout https://scikit-learn.org/stable/modules/classes.html#module-sklearn.metrics
     """
 
     model.eval()
@@ -265,12 +236,6 @@ def eval(model, val_loader):
     model.eval()
     for x, masks, rev_x, rev_masks, y in val_loader:
         y_logit = model(x, masks)
-        """
-        TODO: obtain the predicted class (0, 1) by comparing y_logit against 0.5, 
-              assign the predicted class to y_hat.
-        """
-        y_hat = None
-        # your code here
         y_hat = torch.where(y_logit > 0.5, 1, 0)
         y_score = torch.cat((y_score, y_logit.detach().to('cpu')), dim=0)
         y_pred = torch.cat((y_pred, y_hat.detach().to('cpu')), dim=0)
@@ -306,11 +271,6 @@ def train(model, train_loader, val_loader, n_epochs):
         for x, masks, rev_x, rev_masks, y in train_loader:
             optimizer.zero_grad()
             y_hat = model(x, masks)
-            """ 
-            TODO: calculate the loss using `criterion`, save the output to loss.
-            """
-            loss = None
-            # your code here
             loss = criterion(y_hat, y)
             loss.backward()
             optimizer.step()
@@ -323,6 +283,16 @@ def train(model, train_loader, val_loader, n_epochs):
     return round(roc_auc, 2)
 
 
-n_epochs = 5
+n_epochs = 3
 train(ctn, train_loader, val_loader, n_epochs)
 
+p, r, f, roc_auc = eval(ctn, test_loader)
+print('Test p: {:.4f}, r:{:.4f}, f: {:.4f}, roc_auc: {:.4f}'.format(p, r, f, roc_auc))
+
+torch.save(ctn.state_dict(), "models/content_statedict.pth")
+
+# reload and evaluation
+model = Content(input_dim=num_codes-1)
+model.load_state_dict(torch.load("models/content_statedict.pth"))
+p, r, f, roc_auc = eval(model, test_loader)
+print('Test p: {:.4f}, r:{:.4f}, f: {:.4f}, roc_auc: {:.4f}'.format(p, r, f, roc_auc))

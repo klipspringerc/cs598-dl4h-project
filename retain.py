@@ -49,21 +49,9 @@ class CustomDataset(Dataset):
         self.y = labels
 
     def __len__(self):
-        """
-        TODO: Return the number of samples (i.e. patients).
-        """
-
-        # your code here
         return len(self.x)
 
     def __getitem__(self, index):
-        """
-        TODO: Generates one sample of data.
-
-        Note that you DO NOT need to covert them to tensor as we will do this later.
-        """
-
-        # your code here
         return self.x[index], self.y[index]
 
 
@@ -72,9 +60,6 @@ torch.set_default_device('cpu')
 
 def collate_fn(data):
     """
-    TODO: Collate the the list of samples into batches. For each patient, you need to pad the diagnosis
-        sequences to the sample shape (max # visits, max # diagnosis codes). The padding infomation
-        is stored in `mask`.
 
     Arguments:
         data: a list of samples fetched from `CustomDataset`
@@ -85,9 +70,6 @@ def collate_fn(data):
         rev_x: same as x but in reversed time. This will be used in our RNN model for masking
         rev_masks: same as mask but in reversed time. This will be used in our RNN model for masking
         y: a tensor of shape (# patiens) of type torch.float
-
-    Note that you can obtains the list of diagnosis codes and the list of hf labels
-        using: `sequences, labels = zip(*data)`
     """
 
     sequences, labels = zip(*data)
@@ -107,10 +89,6 @@ def collate_fn(data):
     rev_masks = torch.zeros((num_patients, max_num_visits, max_num_codes), dtype=torch.bool)
     for i_patient, patient in enumerate(sequences):
         for j_visit, visit in enumerate(patient):
-            """
-            TODO: update `x`, `rev_x`, `masks`, and `rev_masks`
-            """
-            # your code here
             masks[i_patient][j_visit][:len(visit)] = True
             x[i_patient][j_visit][:len(visit)] = torch.tensor(visit).type(torch.long)
             rev_masks[i_patient][len(patient) - 1 - j_visit][:len(visit)] = True
@@ -156,11 +134,6 @@ class AlphaAttention(torch.nn.Module):
 
         Outputs:
             alpha: the corresponding attention weights of shape (batch_size, # visits, 1)
-
-        HINT:
-            1. Calculate the attention score using `self.a_att`
-            2. Mask out the padded visits in the attention score with -1e9.
-            3. Perform softmax on the attention score to get the attention value.
         """
         # your code here
         att_score = self.a_att(g).squeeze(-1)  # (batch, visit, embedding) -> (batch, visit, 1)
@@ -211,8 +184,6 @@ def attention_sum(alpha, beta, rev_v, rev_masks):
 
     Outputs:
         c: the context vector of shape (batch_size, embedding_dim)
-
-    NOTE: Do NOT use for loop.
     """
 
     # your code here
@@ -315,12 +286,6 @@ def eval(model, val_loader):
     model.eval()
     for x, masks, rev_x, rev_masks, y in val_loader:
         y_logit = model(x, masks, rev_x, rev_masks)
-        """
-        TODO: obtain the predicted class (0, 1) by comparing y_logit against 0.5, 
-              assign the predicted class to y_hat.
-        """
-        y_hat = None
-        # your code here
         y_hat = torch.where(y_logit > 0.5, 1, 0)
         y_score = torch.cat((y_score, y_logit.detach().to('cpu')), dim=0)
         y_pred = torch.cat((y_pred, y_hat.detach().to('cpu')), dim=0)
@@ -336,7 +301,7 @@ retain = RETAIN(num_codes = 492)  # total vocab 491
 # load the loss function
 criterion = nn.BCELoss()
 # load the optimizer
-optimizer = torch.optim.Adam(retain.parameters(), lr=1e-4)
+optimizer = torch.optim.Adam(retain.parameters(), lr=2e-5)
 
 
 def train(model, train_loader, val_loader, n_epochs):
@@ -356,11 +321,6 @@ def train(model, train_loader, val_loader, n_epochs):
         for x, masks, rev_x, rev_masks, y in train_loader:
             optimizer.zero_grad()
             y_hat = model(x, masks, rev_x, rev_masks)
-            """ 
-            TODO: calculate the loss using `criterion`, save the output to loss.
-            """
-            loss = None
-            # your code here
             loss = criterion(y_hat, y)
             loss.backward()
             optimizer.step()
