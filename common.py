@@ -96,3 +96,7 @@ def full_eval(model, val_loader):
     precision, recall, _ = precision_recall_curve(y_true, y_score)
     pr_auc = auc(recall, precision)
     return p, r, f, roc_auc, pr_auc
+
+
+def total_params(model):
+    return sum(p.numel() for p in model.parameters())
