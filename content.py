@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from util import *
+from common import full_eval
 
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
@@ -86,10 +87,10 @@ def collate_fn(data):
         data: a list of samples fetched from `CustomDataset`
 
     Outputs:
-        x: a tensor of shape (# patiens, max # visits, max # diagnosis codes) of type torch.long
+        x: a tensor of shape (# patiens, max # visits, largest diagnosis code) of type torch.float, multi-host encoding of diagnosis code within each visit
         masks: a tensor of shape (# patiens, max # visits, max # diagnosis codes) of type torch.bool
-        rev_x: same as x but in reversed time. This will be used in our RNN model for masking
-        rev_masks: same as mask but in reversed time. This will be used in our RNN model for masking
+        rev_x: same as x but in reversed time.
+        rev_masks: same as mask but in reversed time.
         y: a tensor of shape (# patiens) of type torch.float
     """
 
@@ -147,12 +148,12 @@ class Recognition(torch.nn.Module):
 
         self.hidden = hidden_dim
 
-    def forward(self, x, rev_masks):
+    def forward(self, x, masks):
         """
 
         Arguments:
-            x: the input visit sequence (batch_size, # visits, embedding_dim)
-            rev_masks: the padding masks in reversed time of shape (batch_size, # visits, # diagnosis codes)
+            x: the multi hot encoded visits (# visits, batch_size, # total diagnosis codes)
+            masks: the padding masks of shape (# visits, batch_size, # total diagnosis codes)
 
         Outputs:
             gen: generated value from learned distribution
@@ -162,9 +163,9 @@ class Recognition(torch.nn.Module):
         x = torch.relu(self.b_att(x))
         lu = self.u_ln(x)  # -> (batch, visit, n_topic)
         ls = self.sigma_ln(x)  # -> (batch, visit, n_topic)
-        visit_masks = torch.sum(rev_masks, dim=-1).type(torch.bool)  # (batch, visit)
+        visit_masks = torch.sum(masks, dim=-1).type(torch.bool)  # (batch, visit)
         # calculate mean with mask
-        # TODO: could also sum all visit embeddings up like in HW3
+        # TODO: could also sum all visit embeddings up
         # (batch, n_topic) / (batch, 1)
         mean_u = torch.sum(lu * visit_masks.unsqueeze(-1), dim=1) / torch.sum(visit_masks, dim=-1).unsqueeze(-1)
         mean_log_sigma = torch.sum(ls * visit_masks.unsqueeze(-1), dim=1) / torch.sum(visit_masks, dim=-1).unsqueeze(-1)
@@ -194,7 +195,14 @@ def get_last_visit(hidden_states, masks):
 
 
 class Content(torch.nn.Module):
+    """
+    Define the CONTENT network that contains recognition and GRU modules;
+    """
     def __init__(self, input_dim=num_codes-1, embedding_dim=100, hidden_dim=200, topic_dim=50):
+        """
+        Arguments:
+            input_dim: generator does not take embeddings, directly put input dimension here
+        """
         super().__init__()
 
         self.fc_embedding = nn.Linear(in_features=input_dim, out_features=embedding_dim)
@@ -205,6 +213,11 @@ class Content(torch.nn.Module):
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x, masks):
+        """
+        Arguments:
+            x: the multi hot encoded visits (# visits, batch_size, # total diagnosis codes)
+            masks: the padding masks of shape (# visits, batch_size, # total diagnosis codes)
+        """
         # x = x.type(dtype=torch.float)
         x_embed = self.fc_embedding(x)
         output, _ = self.rnn(x_embed)
@@ -283,7 +296,7 @@ def train(model, train_loader, val_loader, n_epochs):
     return round(roc_auc, 2)
 
 
-n_epochs = 3
+n_epochs = 5
 train(ctn, train_loader, val_loader, n_epochs)
 
 p, r, f, roc_auc = eval(ctn, test_loader)
@@ -294,5 +307,5 @@ torch.save(ctn.state_dict(), "models/content_statedict.pth")
 # reload and evaluation
 model = Content(input_dim=num_codes-1)
 model.load_state_dict(torch.load("models/content_statedict.pth"))
-p, r, f, roc_auc = eval(model, test_loader)
-print('Test p: {:.4f}, r:{:.4f}, f: {:.4f}, roc_auc: {:.4f}'.format(p, r, f, roc_auc))
+p, r, f, roc_auc, pr_auc = full_eval(model, test_loader)
+print('Test p: {:.4f}, r:{:.4f}, f: {:.4f}, roc_auc: {:.4f}, pr_auc: {:.4f}'.format(p, r, f, roc_auc, pr_auc))
