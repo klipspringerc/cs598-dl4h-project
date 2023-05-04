@@ -152,8 +152,8 @@ class Recognition(torch.nn.Module):
         """
 
         Arguments:
-            x: the multi hot encoded visits (# visits, batch_size, # total diagnosis codes)
-            masks: the padding masks of shape (# visits, batch_size, # total diagnosis codes)
+            x: the multi hot encoded visits (batch_size, # visits, # total diagnosis codes)
+            masks: the padding masks of shape (batch_size, # visits, # total diagnosis codes)
 
         Outputs:
             gen: generated value from learned distribution
@@ -215,8 +215,8 @@ class Content(torch.nn.Module):
     def forward(self, x, masks):
         """
         Arguments:
-            x: the multi hot encoded visits (# visits, batch_size, # total diagnosis codes)
-            masks: the padding masks of shape (# visits, batch_size, # total diagnosis codes)
+            x: the multi hot encoded visits (batch_size, # visits, # total diagnosis codes)
+            masks: the padding masks of shape (batch_size, # visits, # total diagnosis codes)
         """
         # x = x.type(dtype=torch.float)
         x_embed = self.fc_embedding(x)

@@ -235,8 +235,8 @@ class RETAIN(nn.Module):
     def forward(self, x, masks, rev_x, rev_masks):
         """
         Arguments:
-            rev_x: the diagnosis sequence in reversed time of shape (# visits, batch_size, # diagnosis codes)
-            rev_masks: the padding masks in reversed time of shape (# visits, batch_size, # diagnosis codes)
+            rev_x: the diagnosis sequence in reversed time of shape (batch_size, # visits, # diagnosis codes)
+            rev_masks: the padding masks in reversed time of shape (batch_size, # visits, # diagnosis codes)
 
         Outputs:
             probs: probabilities of shape (batch_size)
