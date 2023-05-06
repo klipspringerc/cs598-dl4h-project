@@ -7,8 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from util import *
 
-from torch.utils.data import Dataset
-from torch.utils.data import DataLoader
+from torch.utils.data import Dataset, DataLoader
 from sklearn.metrics import precision_recall_fscore_support, roc_auc_score, precision_recall_curve, auc
 
 

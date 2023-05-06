@@ -2,15 +2,15 @@ import os
 import pickle
 import random
 import numpy as np
+import time
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from util import *
 from common import full_eval
 
-from torch.utils.data import Dataset
-from torch.utils.data import DataLoader
-from sklearn.metrics import precision_recall_fscore_support, roc_auc_score
+from torch.utils.data import Dataset, DataLoader
+from sklearn.metrics import precision_recall_fscore_support, roc_auc_score, precision_recall_curve, auc
 
 num_codes = 492
 
@@ -296,13 +296,15 @@ def train(model, train_loader, val_loader, n_epochs):
     return round(roc_auc, 2)
 
 
-n_epochs = 5
+n_epochs = 1
+print(time.strftime("%H:%M:%S", time.localtime()))
 train(ctn, train_loader, val_loader, n_epochs)
+print(time.strftime("%H:%M:%S", time.localtime()))
 
 p, r, f, roc_auc = eval(ctn, test_loader)
 print('Test p: {:.4f}, r:{:.4f}, f: {:.4f}, roc_auc: {:.4f}'.format(p, r, f, roc_auc))
 
-torch.save(ctn.state_dict(), "models/content_statedict.pth")
+torch.save(ctn.state_dict(), "models/content_epoch2.pth")
 
 # reload and evaluation
 model = Content(input_dim=num_codes-1)

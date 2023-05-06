@@ -9,6 +9,7 @@ import torch.nn.functional as F
 from util import *
 from common import CustomDataset
 from torch.utils.data import Dataset, DataLoader
+from sklearn.metrics import precision_recall_fscore_support, roc_auc_score, precision_recall_curve, auc
 
 num_codes = 492
 
@@ -72,9 +73,10 @@ dataset_test = CustomDataset(seq_test, labels_test)
 test_loader = DataLoader(dataset_test, batch_size=16, collate_fn=collate_fn, shuffle=False)
 
 
-class SimpleAttn(nn.Module):
+class SimpleAttnR2(nn.Module):
     """
         Define the attention network with no RNN modules
+        Flatten scoring over fixed window
     """
 
     def __init__(self, input_dim=num_codes-1, embedding_dim=100, key_dim=64, window_size=window_size, hidden_dim=512):
@@ -111,31 +113,37 @@ class SimpleAttn(nn.Module):
         return self.sigmoid(self.fc(output)).squeeze(dim=-1)
 
 
-class SimpleAttnR2(nn.Module):
+class SimpleAttn(nn.Module):
     """
         Define the attention network with no RNN modules
+        Positional encoding, max window size in reverse order, use mean query and key vectors for embedding scoring
     """
 
-    def __init__(self, input_dim=num_codes - 1, embedding_dim=100, key_dim=200, window_size=64):
+    def __init__(self, input_dim=num_codes - 1, embedding_dim=128, key_dim=128, window_size=64, pos_enc_dim=8):
         super().__init__()
         self.window_size = window_size
-        self.fc_key = nn.Linear(input_dim, key_dim)
-        self.fc_query = nn.Linear(input_dim, key_dim)
+        self.position_encoding = torch.tensor(get_position_encoding(350, pos_enc_dim)).type(torch.float).unsqueeze(0)
+        self.fc_key = nn.Linear(input_dim + pos_enc_dim, key_dim)
+        self.fc_query = nn.Linear(input_dim + pos_enc_dim, key_dim)
         # self.fc_score = nn.Linear(key_dim, 1)
-        self.fc_embed = nn.Linear(in_features=input_dim, out_features=embedding_dim)
+        self.fc_embed = nn.Linear(in_features=input_dim + pos_enc_dim, out_features=embedding_dim)
         self.fc = nn.Linear(in_features=embedding_dim, out_features=1)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x, masks):
         """
         Arguments:
-            x: the multi hot encoded visits (batch_size, # visits, # total diagnosis codes)
-            masks: the padding masks of shape (batch_size, # visits, # total diagnosis codes)
+            x: the multi hot encoded visits in reverse order (batch_size, # visits, # total diagnosis codes)
+            masks: the padding masks of shape in reverse order (batch_size, # visits, # total diagnosis codes)
         """
         # generate key, query and embeddings
         if x.shape[1] > self.window_size:
             x = x[:, :self.window_size, :]
             masks = masks[:, :self.window_size, :]
+        pos = self.position_encoding
+        if pos.shape[1] > x.shape[1]:
+            pos = pos[:, :x.shape[1], :]
+        x = torch.cat((x, pos.expand(x.shape[0], x.shape[1], pos.shape[2])), -1)  # concat input with position encodings
         x_key = torch.relu(self.fc_key(x))  # (batch, #visit, key_dim)
         x_query = torch.relu(self.fc_query(x))  # (batch, #visit, key_dim)
         x_embed = self.fc_embed(x)  # (batch, #visit, embed)
@@ -187,6 +195,8 @@ class SimpleAttnR1(nn.Module):
         return self.sigmoid(self.fc(output)).squeeze(dim=-1)
 
 
+position_encoding = torch.tensor(get_position_encoding(350, 8)).unsqueeze(0)
+
 attn = SimpleAttn(input_dim=num_codes-1)
 
 # load the loss function
@@ -194,6 +204,71 @@ criterion = nn.BCELoss()
 # load the optimizer
 optimizer = torch.optim.Adam(attn.parameters(), lr=0.001)
 
+
+def eval(model, val_loader):
+    """
+    Evaluate the model.
+
+    Arguments:
+        model: the model
+        val_loader: validation dataloader
+
+    Outputs:
+        precision: overall precision score
+        recall: overall recall score
+        f1: overall f1 score
+        roc_auc: overall roc_auc score
+    """
+
+    model.eval()
+    y_pred = torch.LongTensor()
+    y_score = torch.Tensor()
+    y_true = torch.LongTensor()
+    model.eval()
+    for x, masks, rev_x, rev_masks, y in val_loader:
+        y_logit = model(rev_x, rev_masks)
+        y_hat = torch.where(y_logit > 0.5, 1, 0)
+        y_score = torch.cat((y_score, y_logit.detach().to('cpu')), dim=0)
+        y_pred = torch.cat((y_pred, y_hat.detach().to('cpu')), dim=0)
+        y_true = torch.cat((y_true, y.detach().to('cpu')), dim=0)
+
+    p, r, f, _ = precision_recall_fscore_support(y_true, y_pred, average='binary')
+    roc_auc = roc_auc_score(y_true, y_score)
+    return p, r, f, roc_auc
+
+
+def full_eval(model, val_loader):
+    """
+    Evaluate the model.
+
+    Arguments:
+        model: the model
+        val_loader: validation dataloader
+
+    Outputs:
+        precision: overall precision score
+        recall: overall recall score
+        f1: overall f1 score
+        roc_auc: overall roc_auc score
+    """
+
+    model.eval()
+    y_pred = torch.LongTensor()
+    y_score = torch.Tensor()
+    y_true = torch.LongTensor()
+    model.eval()
+    for x, masks, rev_x, rev_masks, y in val_loader:
+        y_logit = model(rev_x, rev_masks)
+        y_hat = torch.where(y_logit > 0.5, 1, 0)
+        y_score = torch.cat((y_score, y_logit.detach().to('cpu')), dim=0)
+        y_pred = torch.cat((y_pred, y_hat.detach().to('cpu')), dim=0)
+        y_true = torch.cat((y_true, y.detach().to('cpu')), dim=0)
+
+    p, r, f, _ = precision_recall_fscore_support(y_true, y_pred, average='binary')
+    roc_auc = roc_auc_score(y_true, y_score)
+    precision, recall, _ = precision_recall_curve(y_true, y_score)
+    pr_auc = auc(recall, precision)
+    return p, r, f, roc_auc, pr_auc
 
 def train(model, train_loader, val_loader, n_epochs):
     """
@@ -228,3 +303,5 @@ n_epochs = 2
 print(time.strftime("%H:%M:%S", time.localtime()))
 train(attn, train_loader, val_loader, n_epochs)
 print(time.strftime("%H:%M:%S", time.localtime()))
+
+torch.save(attn.state_dict(), "models/simple_attn_epoch2.pth")
