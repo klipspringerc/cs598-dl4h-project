@@ -270,6 +270,7 @@ def full_eval(model, val_loader):
     pr_auc = auc(recall, precision)
     return p, r, f, roc_auc, pr_auc
 
+
 def train(model, train_loader, val_loader, n_epochs):
     """
     Train the model.
