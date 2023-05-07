@@ -201,17 +201,6 @@ def main():
     docs, labels = convert_format(word_to_index, events)
     split_data(docs, labels)
 
-    # verify loading
-    config = Config()
-    reader = PatientReader(config)
-    iterator = reader.iterator()
-    X, Xc = iterator[0].next()
-    Y, seq_len = iterator[1].next()
-    # printing stuff to debug
-    print("X is of shape CxT_patient: ", X)
-    print("Xc is of shape Cx1: ", Xc.shape)
-    print("seq_len is of shape Cx1: ", seq_len.shape)
-
 
 if __name__ == '__main__':
     main()

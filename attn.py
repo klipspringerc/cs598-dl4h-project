@@ -304,4 +304,4 @@ print(time.strftime("%H:%M:%S", time.localtime()))
 train(attn, train_loader, val_loader, n_epochs)
 print(time.strftime("%H:%M:%S", time.localtime()))
 
-torch.save(attn.state_dict(), "models/simple_attn_epoch2.pth")
+torch.save(attn.state_dict(), "models/simple_attn_opt.pth")

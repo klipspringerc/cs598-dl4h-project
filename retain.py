@@ -2,13 +2,14 @@ import os
 import pickle
 import random
 import numpy as np
+import time
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from util import *
 
-from torch.utils.data import Dataset
-from torch.utils.data import DataLoader
+from torch.utils.data import Dataset, DataLoader
+from sklearn.metrics import precision_recall_fscore_support, roc_auc_score, precision_recall_curve, auc
 
 
 doc_train = load_pkl("resource/X_train.pkl")
@@ -55,9 +56,6 @@ class CustomDataset(Dataset):
         return self.x[index], self.y[index]
 
 
-dataset = CustomDataset(seqs, labels)
-torch.set_default_device('cpu')
-
 def collate_fn(data):
     """
 
@@ -97,9 +95,8 @@ def collate_fn(data):
     return x, masks, rev_x, rev_masks, y
 
 
-
-
-train_loader = DataLoader(dataset, batch_size=32, collate_fn=collate_fn, shuffle=True)
+dataset_train = CustomDataset(seqs, labels)
+train_loader = DataLoader(dataset_train, batch_size=32, collate_fn=collate_fn, shuffle=True)
 loader_iter = iter(train_loader)
 x, masks, rev_x, rev_masks, y = next(loader_iter)
 
@@ -135,7 +132,6 @@ class AlphaAttention(torch.nn.Module):
         Outputs:
             alpha: the corresponding attention weights of shape (batch_size, # visits, 1)
         """
-        # your code here
         att_score = self.a_att(g).squeeze(-1)  # (batch, visit, embedding) -> (batch, visit, 1)
         visit_masks = torch.sum(rev_masks, dim=-1).type(torch.bool)
         att_score = att_score.masked_fill(~visit_masks, -1e9)
@@ -168,7 +164,6 @@ class BetaAttention(torch.nn.Module):
 
         """
 
-        # your code here
         return torch.tanh(self.b_att(h))
 
 
@@ -186,7 +181,6 @@ def attention_sum(alpha, beta, rev_v, rev_masks):
         c: the context vector of shape (batch_size, embedding_dim)
     """
 
-    # your code here
     visit_mask = torch.sum(rev_masks, dim=-1).type(torch.bool).unsqueeze(-1)
     alpha_filtered = alpha.masked_fill(~visit_mask, 0)
     prod = alpha_filtered * beta * rev_v
@@ -259,9 +253,6 @@ class RETAIN(nn.Module):
         return probs.squeeze(dim=-1)
 
 
-from sklearn.metrics import precision_recall_fscore_support, roc_auc_score
-
-
 def eval(model, val_loader):
     """
     Evaluate the model.
@@ -296,12 +287,12 @@ def eval(model, val_loader):
     return p, r, f, roc_auc
 
 
-retain = RETAIN(num_codes = 492)  # total vocab 491
+retain = RETAIN(num_codes=492)  # total vocab 491
 
 # load the loss function
 criterion = nn.BCELoss()
 # load the optimizer
-optimizer = torch.optim.Adam(retain.parameters(), lr=2e-5)
+optimizer = torch.optim.Adam(retain.parameters(), lr=1e-3)
 
 
 def train(model, train_loader, val_loader, n_epochs):
@@ -333,8 +324,46 @@ def train(model, train_loader, val_loader, n_epochs):
     return round(roc_auc, 2)
 
 
-n_epochs = 3
-train(retain, train_loader, val_loader, n_epochs)
+def full_eval(model, val_loader):
+    """
+    Evaluate the model.
 
-p, r, f, roc_auc = eval(retain, test_loader)
-print('Test p: {:.4f}, r:{:.4f}, f: {:.4f}, roc_auc: {:.4f}'.format(p, r, f, roc_auc))
+    Arguments:
+        model: the model
+        val_loader: validation dataloader
+
+    Outputs:
+        precision: overall precision score
+        recall: overall recall score
+        f1: overall f1 score
+        roc_auc: overall roc_auc score
+    """
+
+    model.eval()
+    y_pred = torch.LongTensor()
+    y_score = torch.Tensor()
+    y_true = torch.LongTensor()
+    model.eval()
+    for x, masks, rev_x, rev_masks, y in val_loader:
+        y_logit =  model(x, masks, rev_x, rev_masks)
+        y_hat = torch.where(y_logit > 0.5, 1, 0)
+        y_score = torch.cat((y_score, y_logit.detach().to('cpu')), dim=0)
+        y_pred = torch.cat((y_pred, y_hat.detach().to('cpu')), dim=0)
+        y_true = torch.cat((y_true, y.detach().to('cpu')), dim=0)
+
+    p, r, f, _ = precision_recall_fscore_support(y_true, y_pred, average='binary')
+    roc_auc = roc_auc_score(y_true, y_score)
+    precision, recall, _ = precision_recall_curve(y_true, y_score)
+    pr_auc = auc(recall, precision)
+    return p, r, f, roc_auc, pr_auc
+
+n_epochs = 1
+print(time.strftime("%H:%M:%S", time.localtime()))
+train(retain, train_loader, val_loader, n_epochs)
+print(time.strftime("%H:%M:%S", time.localtime()))
+
+
+p, r, f, roc_auc, pr_auc = full_eval(retain, test_loader)
+print('Test p: {:.4f}, r:{:.4f}, f: {:.4f}, roc_auc: {:.4f}, pr_auc: {:.4f}'.format(p, r, f, roc_auc, pr_auc))
+
+torch.save(retain.state_dict(), "models/retain_opt.pth")

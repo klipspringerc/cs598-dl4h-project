@@ -165,7 +165,6 @@ class Recognition(torch.nn.Module):
         ls = self.sigma_ln(x)  # -> (batch, visit, n_topic)
         visit_masks = torch.sum(masks, dim=-1).type(torch.bool)  # (batch, visit)
         # calculate mean with mask
-        # TODO: could also sum all visit embeddings up
         # (batch, n_topic) / (batch, 1)
         mean_u = torch.sum(lu * visit_masks.unsqueeze(-1), dim=1) / torch.sum(visit_masks, dim=-1).unsqueeze(-1)
         mean_log_sigma = torch.sum(ls * visit_masks.unsqueeze(-1), dim=1) / torch.sum(visit_masks, dim=-1).unsqueeze(-1)
@@ -186,11 +185,8 @@ def get_last_visit(hidden_states, masks):
     First convert the mask to a vector of shape (batch_size,) containing the true visit length;
           and then use this length vector as index to select the last visit.
     """
-
-    # your code here
     idx = torch.sum(torch.sum(masks, -1) > 0, -1)
     # pass two list in index [], so that each row would select different index according to idx.
-    # note this is the way of index selecting
     return hidden_states[range(hidden_states.shape[0]), idx - 1, :]
 
 
@@ -304,10 +300,10 @@ print(time.strftime("%H:%M:%S", time.localtime()))
 p, r, f, roc_auc = eval(ctn, test_loader)
 print('Test p: {:.4f}, r:{:.4f}, f: {:.4f}, roc_auc: {:.4f}'.format(p, r, f, roc_auc))
 
-torch.save(ctn.state_dict(), "models/content_epoch2.pth")
+torch.save(ctn.state_dict(), "models/content_epoch5.pth")
 
 # reload and evaluation
 model = Content(input_dim=num_codes-1)
 model.load_state_dict(torch.load("models/content_statedict.pth"))
-p, r, f, roc_auc, pr_auc = full_eval(model, test_loader)
+p, r, f, roc_auc, pr_auc = full_eval(ctn, test_loader)
 print('Test p: {:.4f}, r:{:.4f}, f: {:.4f}, roc_auc: {:.4f}, pr_auc: {:.4f}'.format(p, r, f, roc_auc, pr_auc))

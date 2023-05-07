@@ -47,7 +47,6 @@ def get_last_visit(hidden_states, masks):
           and then use this length vector as index to select the last visit.
     """
 
-    # your code here
     idx = torch.sum(torch.sum(masks, -1) > 0, -1)
     # pass two list in index [], so that each row would select different index according to idx.
     # note this is the way of index selecting
