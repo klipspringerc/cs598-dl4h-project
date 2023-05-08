@@ -85,7 +85,7 @@ Evaluation based on these snapshots should produce results similar to the projec
 | GRU      | 0.7895  | 0.6530 |
 | SimpAttn | 0.7944  | 0.6478 |
 
-To evaluate a model using test data:
+To evaluate the content model using test data:
 
 ```python
 import torch
@@ -100,6 +100,22 @@ test_loader = get_test_mhc_loader(collate_fn)
 # when evaluating models, first import and init respective model object, then load the state dict
 model = Content(input_dim=num_codes - 1)
 model.load_state_dict(torch.load("models/content_opt.pth"))
+p, r, f, roc_auc, pr_auc = full_eval(model, test_loader)
+print('Test p: {:.4f}, r:{:.4f}, f: {:.4f}, roc_auc: {:.4f}, pr_auc: {:.4f}'.format(p, r, f, roc_auc, pr_auc))
+```
+
+Example A: substitute model specific function `collate_fn` and `full_eval` for simple attention model evaluation.
+
+```python
+import torch
+from attn import SimpleAttn, collate_fn, full_eval
+from common import get_test_mhc_loader
+
+num_codes = 492
+test_loader = get_test_mhc_loader(collate_fn)
+
+model = SimpleAttn(input_dim=num_codes - 1)
+model.load_state_dict(torch.load("models/simple_attn_opt.pth"))
 p, r, f, roc_auc, pr_auc = full_eval(model, test_loader)
 print('Test p: {:.4f}, r:{:.4f}, f: {:.4f}, roc_auc: {:.4f}, pr_auc: {:.4f}'.format(p, r, f, roc_auc, pr_auc))
 ```
