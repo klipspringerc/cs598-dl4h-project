@@ -7,57 +7,15 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from util import *
-
+from data import load_seq
+from common import CustomDataset, data_prepare
 from torch.utils.data import Dataset, DataLoader
 from sklearn.metrics import precision_recall_fscore_support, roc_auc_score, precision_recall_curve, auc
 
 
-doc_train = load_pkl("resource/X_train.pkl")
-label_train = load_pkl("resource/Y_train.pkl")
-doc_val = load_pkl("resource/X_valid.pkl")
-label_val = load_pkl("resource/Y_valid.pkl")
-doc_test = load_pkl("resource/X_test.pkl")
-label_test = load_pkl("resource/Y_test.pkl")
-
-device = torch.device("mps")
-
-# Split complete sequence into sub-seq each associated with one clear label.
-# TODO: issue: sequence length, step size?
-# TODO: do we need to handle cases with consecutive `1`s?
-def split_sequence(docs, labels):
-    split_sequences = []
-    split_labels = []
-    idx_to_patient = []
-    for i in range(len(docs)):
-        patient_seq = docs[i]
-        patient_labels = labels[i]
-        for j in range(len(patient_seq)):
-            split_sequences.append(patient_seq[0:j+1])
-            split_labels.append(patient_labels[j])
-            idx_to_patient.append(i)
-    return split_sequences, split_labels
-
-
-seqs, labels = split_sequence(doc_train, label_train)
-seq_val, label_val = split_sequence(doc_val, label_val)
-seq_test, label_test = split_sequence(doc_test, label_test)
-
-
-class CustomDataset(Dataset):
-
-    def __init__(self, docs, labels):
-        self.x = docs
-        self.y = labels
-
-    def __len__(self):
-        return len(self.x)
-
-    def __getitem__(self, index):
-        return self.x[index], self.y[index]
-
-
 def collate_fn(data):
     """
+    collate returns data in type long and bool
 
     Arguments:
         data: a list of samples fetched from `CustomDataset`
@@ -93,19 +51,6 @@ def collate_fn(data):
             rev_x[i_patient][len(patient) - 1 - j_visit][:len(visit)] = torch.tensor(visit).type(torch.long)
 
     return x, masks, rev_x, rev_masks, y
-
-
-dataset_train = CustomDataset(seqs, labels)
-train_loader = DataLoader(dataset_train, batch_size=32, collate_fn=collate_fn, shuffle=True)
-loader_iter = iter(train_loader)
-x, masks, rev_x, rev_masks, y = next(loader_iter)
-
-
-dataset_val = CustomDataset(seq_val, label_val)
-val_loader = DataLoader(dataset_val, batch_size=32, collate_fn=collate_fn, shuffle=False)
-
-dataset_test = CustomDataset(seq_test, label_test)
-test_loader = DataLoader(dataset_test, batch_size=32, collate_fn=collate_fn, shuffle=False)
 
 
 # AlphaAttention generates one attention value for each visit.
@@ -337,6 +282,7 @@ def full_eval(model, val_loader):
         recall: overall recall score
         f1: overall f1 score
         roc_auc: overall roc_auc score
+        pr_auc: precision-recall auc score
     """
 
     model.eval()
@@ -357,13 +303,19 @@ def full_eval(model, val_loader):
     pr_auc = auc(recall, precision)
     return p, r, f, roc_auc, pr_auc
 
-n_epochs = 1
-print(time.strftime("%H:%M:%S", time.localtime()))
-train(retain, train_loader, val_loader, n_epochs)
-print(time.strftime("%H:%M:%S", time.localtime()))
 
+def model_retain():
+    train_loader, val_loader, test_loader = data_prepare(load_seq, 32, collate_fn)
+    # test loader result
+    loader_iter = iter(train_loader)
+    x, masks, rev_x, rev_masks, y = next(loader_iter)
 
-p, r, f, roc_auc, pr_auc = full_eval(retain, test_loader)
-print('Test p: {:.4f}, r:{:.4f}, f: {:.4f}, roc_auc: {:.4f}, pr_auc: {:.4f}'.format(p, r, f, roc_auc, pr_auc))
+    n_epochs = 1
+    print(time.strftime("%H:%M:%S", time.localtime()))
+    train(retain, train_loader, val_loader, n_epochs)
+    print(time.strftime("%H:%M:%S", time.localtime()))
 
-torch.save(retain.state_dict(), "models/retain_opt.pth")
+    p, r, f, roc_auc, pr_auc = full_eval(retain, test_loader)
+    print('Test p: {:.4f}, r:{:.4f}, f: {:.4f}, roc_auc: {:.4f}, pr_auc: {:.4f}'.format(p, r, f, roc_auc, pr_auc))
+
+    torch.save(retain.state_dict(), "models/retain_test.pth")

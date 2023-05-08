@@ -7,25 +7,18 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from util import *
-from common import CustomDataset
+from data import load_mhc
+from common import CustomDataset, data_prepare
 from torch.utils.data import Dataset, DataLoader
 from sklearn.metrics import precision_recall_fscore_support, roc_auc_score, precision_recall_curve, auc
 
 num_codes = 492
-
-seq_train = load_pkl('./resource/X_train_mhc.pkl')
-labels_train = load_pkl('./resource/Y_train_mhc.pkl')
-seq_val = load_pkl('./resource/X_valid_mhc.pkl')
-labels_val = load_pkl('./resource/Y_valid_mhc.pkl')
-seq_test = load_pkl('./resource/X_test_mhc.pkl')
-labels_test = load_pkl('./resource/Y_test_mhc.pkl')
-
-
 window_size = 64
 
 
 def collate_fn(data):
     """
+    Enforces window_size limit on output data.
 
     Arguments:
         data: a list of samples fetched from `CustomDataset`
@@ -63,60 +56,11 @@ def collate_fn(data):
     return x, masks, rev_x, rev_masks, y
 
 
-dataset_train = CustomDataset(seq_train, labels_train)
-train_loader = DataLoader(dataset_train, batch_size=16, collate_fn=collate_fn, shuffle=True)
-
-dataset_val = CustomDataset(seq_val, labels_val)
-val_loader = DataLoader(dataset_val, batch_size=16, collate_fn=collate_fn, shuffle=False)
-
-dataset_test = CustomDataset(seq_test, labels_test)
-test_loader = DataLoader(dataset_test, batch_size=16, collate_fn=collate_fn, shuffle=False)
-
-
-class SimpleAttnR2(nn.Module):
-    """
-        Define the attention network with no RNN modules
-        Flatten scoring over fixed window
-    """
-
-    def __init__(self, input_dim=num_codes-1, embedding_dim=100, key_dim=64, window_size=window_size, hidden_dim=512):
-        super().__init__()
-        self.window_size = window_size
-        self.fc_key = nn.Linear(input_dim, key_dim)
-        self.fc_score_1 = nn.Linear(window_size * key_dim, hidden_dim)
-        self.fc_score_2 = nn.Linear(hidden_dim, window_size)
-        self.fc_embed = nn.Linear(in_features=input_dim, out_features=embedding_dim)
-        self.fc = nn.Linear(in_features=embedding_dim, out_features=1)
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x, masks):
-        """
-        Arguments:
-            x: the multi hot encoded visits in reverse order (batch_size, # visits, # total diagnosis codes)
-            masks: the padding masks of shape in reverse order (batch_size, # visits, # total diagnosis codes)
-        """
-        # generate key, query and embeddings
-        if x.shape[1] > self.window_size:
-            x = x[:, :self.window_size, :]
-            masks = masks[:, :self.window_size, :]
-        # mlp to generate embedding weights
-        x_key = self.fc_key(x)  # (batch, window_size, key_dim)
-        x_key_flatten = x_key.flatten(start_dim=-2)  # (batch, window_size * key_dim)
-        x_score = torch.relu(self.fc_score_1(x_key_flatten))  # (batch, hidden_dim)
-        x_score = torch.relu(self.fc_score_2(x_score))  # (batch, window_size)
-        x_embed = self.fc_embed(x)  # (batch, window_size, embed)
-        visit_mask = torch.sum(masks, -1).type(torch.bool)  # (batch, window_size)
-        # filter score by visit masks, then softmax along visit axis
-        scores = x_score.masked_fill(visit_mask == 0, -1e9).softmax(dim=-1)  # (batch, window_size)
-        output = torch.matmul(x_embed.transpose(-2, -1), scores.unsqueeze(-1)).squeeze(
-            -1)  # (batch, embed, window_size) X (batch, window_size, 1) -> (batch, embed)
-        return self.sigmoid(self.fc(output)).squeeze(dim=-1)
-
-
 class SimpleAttn(nn.Module):
     """
         Define the attention network with no RNN modules
-        Positional encoding, max window size in reverse order, use mean query and key vectors for embedding scoring
+        Positional encoding, max window size in reverse order, use mean query and key vectors for embedding scoring.
+        This is the version discussed in the report.
     """
 
     def __init__(self, input_dim=num_codes - 1, embedding_dim=128, key_dim=128, window_size=64, pos_enc_dim=8):
@@ -195,19 +139,49 @@ class SimpleAttnR1(nn.Module):
         return self.sigmoid(self.fc(output)).squeeze(dim=-1)
 
 
-position_encoding = torch.tensor(get_position_encoding(350, 8)).unsqueeze(0)
+class SimpleAttnR2(nn.Module):
+    """
+        Define the attention network with no RNN modules
+        Flatten scoring over fixed window, very large number of parameters
+    """
 
-attn = SimpleAttn(input_dim=num_codes-1)
+    def __init__(self, input_dim=num_codes-1, embedding_dim=100, key_dim=64, window_size=window_size, hidden_dim=512):
+        super().__init__()
+        self.window_size = window_size
+        self.fc_key = nn.Linear(input_dim, key_dim)
+        self.fc_score_1 = nn.Linear(window_size * key_dim, hidden_dim)
+        self.fc_score_2 = nn.Linear(hidden_dim, window_size)
+        self.fc_embed = nn.Linear(in_features=input_dim, out_features=embedding_dim)
+        self.fc = nn.Linear(in_features=embedding_dim, out_features=1)
+        self.sigmoid = nn.Sigmoid()
 
-# load the loss function
-criterion = nn.BCELoss()
-# load the optimizer
-optimizer = torch.optim.Adam(attn.parameters(), lr=0.001)
+    def forward(self, x, masks):
+        """
+        Arguments:
+            x: the multi hot encoded visits in reverse order (batch_size, # visits, # total diagnosis codes)
+            masks: the padding masks of shape in reverse order (batch_size, # visits, # total diagnosis codes)
+        """
+        # generate key, query and embeddings
+        if x.shape[1] > self.window_size:
+            x = x[:, :self.window_size, :]
+            masks = masks[:, :self.window_size, :]
+        # mlp to generate embedding weights
+        x_key = self.fc_key(x)  # (batch, window_size, key_dim)
+        x_key_flatten = x_key.flatten(start_dim=-2)  # (batch, window_size * key_dim)
+        x_score = torch.relu(self.fc_score_1(x_key_flatten))  # (batch, hidden_dim)
+        x_score = torch.relu(self.fc_score_2(x_score))  # (batch, window_size)
+        x_embed = self.fc_embed(x)  # (batch, window_size, embed)
+        visit_mask = torch.sum(masks, -1).type(torch.bool)  # (batch, window_size)
+        # filter score by visit masks, then softmax along visit axis
+        scores = x_score.masked_fill(visit_mask == 0, -1e9).softmax(dim=-1)  # (batch, window_size)
+        output = torch.matmul(x_embed.transpose(-2, -1), scores.unsqueeze(-1)).squeeze(
+            -1)  # (batch, embed, window_size) X (batch, window_size, 1) -> (batch, embed)
+        return self.sigmoid(self.fc(output)).squeeze(dim=-1)
 
 
 def eval(model, val_loader):
     """
-    Evaluate the model.
+    Evaluate the model with reversed x and masks.
 
     Arguments:
         model: the model
@@ -239,7 +213,7 @@ def eval(model, val_loader):
 
 def full_eval(model, val_loader):
     """
-    Evaluate the model.
+    Evaluate the model with reversed x and masks.
 
     Arguments:
         model: the model
@@ -250,6 +224,7 @@ def full_eval(model, val_loader):
         recall: overall recall score
         f1: overall f1 score
         roc_auc: overall roc_auc score
+        pr_auc: precision-recall auc score
     """
 
     model.eval()
@@ -271,15 +246,17 @@ def full_eval(model, val_loader):
     return p, r, f, roc_auc, pr_auc
 
 
-def train(model, train_loader, val_loader, n_epochs):
+def train(model, train_loader, val_loader, n_epochs, criterion, optimizer):
     """
-    Train the model.
+    Train the model with reversed x and masks.
 
     Arguments:
         model: the RNN model
         train_loader: training dataloder
         val_loader: validation dataloader
         n_epochs: total number of epochs
+        criterion: loss function
+        optimizer: optimizer
     """
 
     for epoch in range(n_epochs):
@@ -300,9 +277,22 @@ def train(model, train_loader, val_loader, n_epochs):
     return round(roc_auc, 2)
 
 
-n_epochs = 2
-print(time.strftime("%H:%M:%S", time.localtime()))
-train(attn, train_loader, val_loader, n_epochs)
-print(time.strftime("%H:%M:%S", time.localtime()))
+def model_attn():
+    attn = SimpleAttn(input_dim=num_codes - 1)
 
-torch.save(attn.state_dict(), "models/simple_attn_opt.pth")
+    # load the loss function
+    criterion = nn.BCELoss()
+    # load the optimizer
+    optimizer = torch.optim.Adam(attn.parameters(), lr=0.001)
+
+    train_loader, val_loader, test_loader = data_prepare(load_mhc, 16, collate_fn)
+
+    n_epochs = 2
+    print(time.strftime("%H:%M:%S", time.localtime()))
+    train(attn, train_loader, val_loader, n_epochs, criterion, optimizer)
+    print(time.strftime("%H:%M:%S", time.localtime()))
+
+    p, r, f, roc_auc, pr_auc = full_eval(attn, test_loader)
+    print('Test p: {:.4f}, r:{:.4f}, f: {:.4f}, roc_auc: {:.4f}, pr_auc: {:.4f}'.format(p, r, f, roc_auc, pr_auc))
+
+    torch.save(attn.state_dict(), "models/simple_attn_test.pth")

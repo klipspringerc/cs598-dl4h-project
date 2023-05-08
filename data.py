@@ -1,11 +1,11 @@
 import numpy as np
+import os
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
 
 import pandas as pd
 from util import *
-
 
 raw_file = './data/S1_File.txt'
 input_file = './resource/s1_sorted.csv'
@@ -25,11 +25,15 @@ unknown = 1
 # max codes per visit is 75
 # 184 patient has short visit sequence < 30, 6 patient < 6
 
+num_codes = 492
+window_size = 64
+
 
 def sort_data():
     df = pd.read_csv(raw_file, sep='\t', header=0)
     sorted_df = df.sort_values(by=['PID', 'DAY_ID'], ascending=True).reset_index().drop(columns=["index"])
     sorted_df.to_csv(input_file, sep='\t', index=False)
+
 
 # dump_vocab parse S1 data, collect DX_GROUP_DESCRIPTION vocabulary.
 # filter words with low occurrence (rare word), store high occurrence word in stop.txt.
@@ -159,7 +163,6 @@ def split_data(docs, labels):
     save_pkl('./resource/Y_complete.pkl', labels)
 
 
-
 def extract_events():
     # extract event "INPATIENT HOSPITAL"
     target_event = 'INPATIENT HOSPITAL'
@@ -191,6 +194,90 @@ def tag_logic(events, pid, day_id):
     except KeyError:
         # the label is not in the [index]
         return False
+
+
+# Split complete sequence into sub-seq each associated with one clear label.
+def split_sequence(docs, labels):
+    split_sequences = []
+    split_labels = []
+    idx_to_patient = []
+    for i in range(len(docs)):
+        patient_seq = docs[i]
+        patient_labels = labels[i]
+        for j in range(len(patient_seq)):
+            split_sequences.append(patient_seq[0:j + 1])
+            split_labels.append(patient_labels[j])
+            idx_to_patient.append(i)
+    return split_sequences, split_labels
+
+
+# Split complete sequence into sub-seq each associated with one clear label.
+# Convert codes of each visit to multi hot vector
+def split_sequence_hot_code(docs, labels):
+    split_sequences = []
+    split_labels = []
+    idx_to_patient = []
+    for i in range(len(docs)):
+        patient_seq = docs[i]
+        patient_labels = labels[i]
+        for j in range(len(patient_seq)):
+            sub_seq = patient_seq[0:j + 1]
+            seq_hc = []
+            for visit in sub_seq:
+                visit_hc = [0] * (num_codes - 1)
+                for mcode in visit:
+                    visit_hc[mcode - 1] = 1
+                seq_hc.append(visit_hc)
+            split_sequences.append(seq_hc)
+            split_labels.append(patient_labels[j])
+            idx_to_patient.append(i)
+    return split_sequences, split_labels
+
+
+def convert_mhc_data():
+    if os.path.isfile('./resource/X_train_mhc.pkl') and os.path.isfile('./resource/Y_test_mhc.pkl'):
+        return
+    doc_train = load_pkl("resource/X_train.pkl")
+    lb_train = load_pkl("resource/Y_train.pkl")
+    doc_val = load_pkl("resource/X_valid.pkl")
+    lb_val = load_pkl("resource/Y_valid.pkl")
+    doc_test = load_pkl("resource/X_test.pkl")
+    lb_test = load_pkl("resource/Y_test.pkl")
+
+    seq_train, labels_train = split_sequence_hot_code(doc_train, lb_train)
+    seq_val, labels_val = split_sequence_hot_code(doc_val, lb_val)
+    seq_test, labels_test = split_sequence_hot_code(doc_test, lb_test)
+
+    save_pkl('./resource/X_train_mhc.pkl', seq_train)
+    save_pkl('./resource/Y_train_mhc.pkl', labels_train)
+    save_pkl('./resource/X_valid_mhc.pkl', seq_val)
+    save_pkl('./resource/Y_valid_mhc.pkl', labels_val)
+    save_pkl('./resource/X_test_mhc.pkl', seq_test)
+    save_pkl('./resource/Y_test_mhc.pkl', labels_test)
+
+
+def load_seq():
+    doc_train = load_pkl("resource/X_train.pkl")
+    label_train = load_pkl("resource/Y_train.pkl")
+    doc_val = load_pkl("resource/X_valid.pkl")
+    label_val = load_pkl("resource/Y_valid.pkl")
+    doc_test = load_pkl("resource/X_test.pkl")
+    label_test = load_pkl("resource/Y_test.pkl")
+
+    seq_train, labels_train = split_sequence(doc_train, label_train)
+    seq_val, labels_val = split_sequence(doc_val, label_val)
+    seq_test, labels_test = split_sequence(doc_test, label_test)
+    return seq_train, labels_train, seq_val, labels_val, seq_test, labels_test
+
+
+def load_mhc():
+    seq_train = load_pkl('./resource/X_train_mhc.pkl')
+    labels_train = load_pkl('./resource/Y_train_mhc.pkl')
+    seq_val = load_pkl('./resource/X_valid_mhc.pkl')
+    labels_val = load_pkl('./resource/Y_valid_mhc.pkl')
+    seq_test = load_pkl('./resource/X_test_mhc.pkl')
+    labels_test = load_pkl('./resource/Y_test_mhc.pkl')
+    return seq_train, labels_train, seq_val, labels_val, seq_test, labels_test
 
 
 def main():
